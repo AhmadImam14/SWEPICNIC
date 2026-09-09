@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="SWE Final Year Picnic payment and verification portal" />
+    <title>SWE Final Year Picnic</title>
+    <link rel="stylesheet" href="./css/style.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="topbar">
+        <div class="brand">SWE Final Year Picnic</div>
+      </header>
+
+      <main class="hero">
+        <div class="hero-left">
+          <p class="eyebrow">Software Engineering Finalists</p>
+          <h1>SWE Final Year Picnic</h1>
+          <p class="tagline">
+            Join your fellow Software Engineering finalists as we celebrate the end of our undergraduate journey with a memorable picnic.
+          </p>
+
+          <div class="event-meta">
+            <div>
+              <span class="meta-label">Date</span>
+              <strong id="event-date">2026-09-30</strong>
+            </div>
+            <div>
+              <span class="meta-label">Venue</span>
+              <strong id="event-venue">To Be Announced</strong>
+            </div>
+          </div>
+
+          <div class="countdown-box">
+            <h2>Payment Deadline</h2>
+            <div class="countdown" id="countdown">
+              <div><span id="days">00</span><small>Days</small></div>
+              <div><span id="hours">00</span><small>Hours</small></div>
+              <div><span id="minutes">00</span><small>Minutes</small></div>
+              <div><span id="seconds">00</span><small>Seconds</small></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card verification-card">
+          <div class="fee-box">
+            <span>Picnic Fee</span>
+            <strong id="fee-amount">₦10,000</strong>
+          </div>
+
+          <form id="verifyForm" class="stacked-form">
+            <label for="registrationNumber">Enter your registration number</label>
+            <input id="registrationNumber" name="registrationNumber" type="text" placeholder="e.g. CST/XX/SWE/00000" autocomplete="off" />
+            <button id="verifyButton" type="submit" class="primary-btn">Verify Registration</button>
+          </form>
+
+          <div id="msgBox" class="message-box hidden" aria-live="polite"></div>
+
+          <div id="studentResult" class="student-result hidden"></div>
+        </div>
+      </main>
+    </div>
+
+    <script src="./js/main.js"></script>
+  </body>
+</html>
