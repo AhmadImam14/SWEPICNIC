@@ -5,12 +5,18 @@ const { generateReference } = require('../utils/generateReference');
 
 const PICNIC_FEE = Number(process.env.PICNIC_FEE || 5000);
 const PAYMENT_DEADLINE = process.env.PAYMENT_DEADLINE ? new Date(process.env.PAYMENT_DEADLINE) : null;
-const FLUTTERWAVE_BASE_URL = 'https://api.flutterwave.com/v3';
+const FLUTTERWAVE_BASE_URL = (process.env.FLUTTERWAVE_API_BASE_URL || 'https://api.flutterwave.com/v4').replace(/\/$/, '');
+const FRONTEND_URL = (process.env.FRONTEND_URL || 'http://localhost:5000').replace(/\/$/, '');
 
 const buildCustomerEmail = (student) => {
   const regNumber = String(student?.registrationNumber || '').trim().toLowerCase();
   const cleanedLocalPart = regNumber.replace(/[^a-z0-9]/g, '').slice(0, 60) || 'student';
   return `${cleanedLocalPart}@student.mail`;
+};
+
+const getPaymentStatusFromFlutterwave = (tx) => {
+  const status = String(tx?.status || tx?.event || '').toLowerCase();
+  return status;
 };
 
 const isDeadlinePassed = () => {
@@ -63,33 +69,45 @@ const initializePayment = async (req, res) => {
     }
 
     const reference = generateReference(student.registrationNumber);
+    const secretKey = process.env.FLUTTERWAVE_SECRET_KEY;
+
+    if (!secretKey) {
+      return res.status(500).json({
+        success: false,
+        message: 'Flutterwave secret key is not configured on the server.',
+      });
+    }
 
     const response = await axios.post(
       `${FLUTTERWAVE_BASE_URL}/payments`,
       {
         tx_ref: reference,
-        amount: String(PICNIC_FEE),
+        amount: Number(PICNIC_FEE),
         currency: 'NGN',
-        redirect_url: `${process.env.FRONTEND_URL || 'http://localhost:5000'}/payment-success?reference=${reference}`,
+        redirect_url: `${FRONTEND_URL}/payment-success?reference=${reference}`,
         payment_options: 'card',
         customer: {
           email: buildCustomerEmail(student),
           name: student.name,
+          phonenumber: '00000000000',
         },
         customizations: {
           title: 'SWE Final Year Picnic',
           description: 'Picnic fee payment',
+          logo: 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=200&q=80',
         },
       },
       {
         headers: {
-          Authorization: `Bearer ${process.env.FLUTTERWAVE_SECRET_KEY}`,
+          Authorization: `Bearer ${secretKey}`,
           'Content-Type': 'application/json',
+          Accept: 'application/json',
         },
+        timeout: 30000,
       }
     );
 
-    const paymentLink = response?.data?.data?.link;
+    const paymentLink = response?.data?.data?.link || response?.data?.data?.payment_link;
     if (!paymentLink) {
       return res.status(502).json({ success: false, message: 'Unable to initialize payment right now.' });
     }
@@ -104,10 +122,12 @@ const initializePayment = async (req, res) => {
       reference,
     });
   } catch (error) {
-    console.error('initializePayment error:', error.response?.data || error.message);
+    const flutterwaveError = error.response?.data;
+    console.error('initializePayment error:', flutterwaveError || error.message);
     return res.status(500).json({
       success: false,
       message: 'Payment initialization failed. Please try again later.',
+      details: flutterwaveError || null,
     });
   }
 };
@@ -132,12 +152,15 @@ const verifyPayment = async (req, res) => {
     const response = await axios.get(`${FLUTTERWAVE_BASE_URL}/transactions/verify_by_reference?tx_ref=${encodeURIComponent(reference)}`, {
       headers: {
         Authorization: `Bearer ${process.env.FLUTTERWAVE_SECRET_KEY}`,
+        Accept: 'application/json',
       },
+      timeout: 30000,
     });
 
     const tx = response?.data?.data || null;
+    const paymentStatus = getPaymentStatusFromFlutterwave(tx);
 
-    if (!tx || ['successful', 'success'].includes(String(tx.status).toLowerCase()) === false) {
+    if (!tx || !['successful', 'success', 'completed'].includes(paymentStatus)) {
       return res.status(200).json({
         success: false,
         status: 'pending',
@@ -221,7 +244,8 @@ const webhook = async (req, res) => {
       return res.status(200).json({ success: true, message: 'Duplicate webhook ignored.' });
     }
 
-    const isSuccessfulEvent = ['charge.completed', 'charge.complete', 'transaction.successful', 'transaction.completed'].includes(eventName);
+    const successfulEvents = ['charge.completed', 'charge.complete', 'transaction.successful', 'transaction.completed', 'payment.completed', 'payment.successful'];
+    const isSuccessfulEvent = successfulEvents.includes(eventName);
     if (isSuccessfulEvent) {
       const txAmount = Number(data.amount || 0);
       if (txAmount !== PICNIC_FEE) {
