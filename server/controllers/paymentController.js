@@ -6,8 +6,12 @@ const PICNIC_FEE = Number(process.env.PICNIC_FEE || 5000);
 const PAYMENT_DEADLINE = process.env.PAYMENT_DEADLINE ? new Date(process.env.PAYMENT_DEADLINE) : null;
 const FRONTEND_URL = (process.env.FRONTEND_URL || 'http://localhost:5000').replace(/\/$/, '');
 const PAYMENT_PROVIDER = (process.env.PAYMENT_PROVIDER || 'quickteller').toLowerCase();
-const QUICKTELLER_CHECKOUT_URL = (process.env.QUICKTELLER_CHECKOUT_URL || 'https://checkout.quickteller.com').replace(/\/$/, '');
+const QUICKTELLER_CHECKOUT_URL = (process.env.QUICKTELLER_CHECKOUT_URL || 'https://webpay.interswitchng.com/collections/w/pay').replace(/\/$/, '');
 const QUICKTELLER_MERCHANT_ID = process.env.QUICKTELLER_MERCHANT_ID || '';
+const QUICKTELLER_MERCHANT_CODE = process.env.QUICKTELLER_MERCHANT_CODE || QUICKTELLER_MERCHANT_ID || '';
+const QUICKTELLER_PAY_ITEM_ID = process.env.QUICKTELLER_PAY_ITEM_ID || '';
+const QUICKTELLER_CURRENCY = Number(process.env.QUICKTELLER_CURRENCY || 566);
+const QUICKTELLER_PAYMENT_RESPONSE_TYPE = (process.env.QUICKTELLER_PAYMENT_RESPONSE_TYPE || 'POST').toUpperCase();
 const QUICKTELLER_API_KEY = process.env.QUICKTELLER_API_KEY || '';
 
 const buildCustomerEmail = (student) => {
@@ -26,13 +30,15 @@ const isDeadlinePassed = () => {
 
 const buildQuicktellerCheckoutUrl = (student, reference) => {
   const params = new URLSearchParams({
-    merchantId: QUICKTELLER_MERCHANT_ID,
+    merchant_code: QUICKTELLER_MERCHANT_CODE,
+    pay_item_id: QUICKTELLER_PAY_ITEM_ID,
+    txn_ref: reference,
     amount: String(PICNIC_FEE),
-    reference,
-    redirectUrl: `${FRONTEND_URL}/payment-success?reference=${reference}`,
-    customerName: student.name,
-    customerEmail: buildCustomerEmail(student),
-    description: 'SWE Final Year Picnic',
+    currency: String(QUICKTELLER_CURRENCY),
+    cust_email: buildCustomerEmail(student),
+    cust_name: student.name,
+    site_redirect_url: `${FRONTEND_URL}/payment-success?reference=${reference}`,
+    payment_response_type: QUICKTELLER_PAYMENT_RESPONSE_TYPE,
   });
 
   return `${QUICKTELLER_CHECKOUT_URL}?${params.toString()}`;
@@ -86,10 +92,17 @@ const initializePayment = async (req, res) => {
       });
     }
 
-    if (!QUICKTELLER_MERCHANT_ID) {
+    if (!QUICKTELLER_MERCHANT_CODE) {
       return res.status(500).json({
         success: false,
-        message: 'Quickteller merchant ID is not configured on the server.',
+        message: 'Quickteller merchant code is not configured on the server.',
+      });
+    }
+
+    if (!QUICKTELLER_PAY_ITEM_ID) {
+      return res.status(500).json({
+        success: false,
+        message: 'Quickteller pay item ID is not configured on the server.',
       });
     }
 

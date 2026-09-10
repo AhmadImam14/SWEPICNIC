@@ -72,9 +72,13 @@ PORT=5000
 MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/picnic
 PAYMENT_PROVIDER=quickteller
 QUICKTELLER_MERCHANT_ID=your_quickteller_merchant_id
+QUICKTELLER_MERCHANT_CODE=your_quickteller_merchant_code
+QUICKTELLER_PAY_ITEM_ID=your_quickteller_pay_item_id
 QUICKTELLER_API_KEY=your_quickteller_api_key
 QUICKTELLER_WEBHOOK_HASH=your_quickteller_webhook_hash
-QUICKTELLER_CHECKOUT_URL=https://checkout.quickteller.com
+QUICKTELLER_CHECKOUT_URL=https://webpay.interswitchng.com/collections/w/pay
+QUICKTELLER_PAYMENT_RESPONSE_TYPE=POST
+QUICKTELLER_CURRENCY=566
 PICNIC_FEE=5000
 PAYMENT_DEADLINE=2026-09-20T23:59:59
 ADMIN_EMAIL=admin@example.com
@@ -92,11 +96,12 @@ FRONTEND_URL=http://localhost:5000
 ## Quickteller Setup
 
 1. Create or access your Quickteller/InterSwitch merchant account.
-2. Get your merchant ID, API key, and webhook hash from the dashboard.
-3. Keep the secret key in the backend only.
-4. Configure your redirect URL to your frontend success route, e.g. `https://your-site.com/payment-success`.
-5. Set `QUICKTELLER_CHECKOUT_URL` to the correct Quickteller checkout host for your region/account.
-6. Copy the webhook hash to `QUICKTELLER_WEBHOOK_HASH`.
+3. Get your merchant code, pay item ID, API key, and webhook hash from the dashboard.
+4. Keep the secret key in the backend only.
+5. Configure your `site_redirect_url` to your frontend success route, e.g. `https://your-site.com/payment-success`.
+6. Set `QUICKTELLER_CHECKOUT_URL` to the correct Interswitch/Quickteller checkout host for your region/account.
+7. Copy the webhook hash to `QUICKTELLER_WEBHOOK_HASH`.
+8. Use `QUICKTELLER_CURRENCY=566` for NGN and `QUICKTELLER_PAYMENT_RESPONSE_TYPE=POST` for server-side handling.
 
 ## Student CSV Import
 
