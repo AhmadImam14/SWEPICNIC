@@ -7,6 +7,12 @@ const PICNIC_FEE = Number(process.env.PICNIC_FEE || 5000);
 const PAYMENT_DEADLINE = process.env.PAYMENT_DEADLINE ? new Date(process.env.PAYMENT_DEADLINE) : null;
 const FLUTTERWAVE_BASE_URL = 'https://api.flutterwave.com/v3';
 
+const buildCustomerEmail = (student) => {
+  const regNumber = String(student?.registrationNumber || '').trim().toLowerCase();
+  const cleanedLocalPart = regNumber.replace(/[^a-z0-9]/g, '').slice(0, 60) || 'student';
+  return `${cleanedLocalPart}@student.mail`;
+};
+
 const isDeadlinePassed = () => {
   if (!PAYMENT_DEADLINE || Number.isNaN(PAYMENT_DEADLINE.getTime())) {
     return false;
@@ -67,7 +73,7 @@ const initializePayment = async (req, res) => {
         redirect_url: `${process.env.FRONTEND_URL || 'http://localhost:5000'}/payment-success?reference=${reference}`,
         payment_options: 'card',
         customer: {
-          email: `${student.registrationNumber.toLowerCase().replace(/[^a-z0-9]/g, '')}@student.mail`,
+          email: buildCustomerEmail(student),
           name: student.name,
         },
         customizations: {
