@@ -1,22 +1,19 @@
-const axios = require('axios');
 const crypto = require('crypto');
 const Student = require('../models/Student');
 const { generateReference } = require('../utils/generateReference');
 
 const PICNIC_FEE = Number(process.env.PICNIC_FEE || 5000);
 const PAYMENT_DEADLINE = process.env.PAYMENT_DEADLINE ? new Date(process.env.PAYMENT_DEADLINE) : null;
-const FLUTTERWAVE_BASE_URL = (process.env.FLUTTERWAVE_API_BASE_URL || 'https://api.flutterwave.com/v4').replace(/\/$/, '');
 const FRONTEND_URL = (process.env.FRONTEND_URL || 'http://localhost:5000').replace(/\/$/, '');
+const PAYMENT_PROVIDER = (process.env.PAYMENT_PROVIDER || 'quickteller').toLowerCase();
+const QUICKTELLER_CHECKOUT_URL = (process.env.QUICKTELLER_CHECKOUT_URL || 'https://checkout.quickteller.com').replace(/\/$/, '');
+const QUICKTELLER_MERCHANT_ID = process.env.QUICKTELLER_MERCHANT_ID || '';
+const QUICKTELLER_API_KEY = process.env.QUICKTELLER_API_KEY || '';
 
 const buildCustomerEmail = (student) => {
   const regNumber = String(student?.registrationNumber || '').trim().toLowerCase();
   const cleanedLocalPart = regNumber.replace(/[^a-z0-9]/g, '').slice(0, 60) || 'student';
   return `${cleanedLocalPart}@student.mail`;
-};
-
-const getPaymentStatusFromFlutterwave = (tx) => {
-  const status = String(tx?.status || tx?.event || '').toLowerCase();
-  return status;
 };
 
 const isDeadlinePassed = () => {
@@ -27,8 +24,22 @@ const isDeadlinePassed = () => {
   return new Date() >= PAYMENT_DEADLINE;
 };
 
-const verifyFlutterwaveSignature = (payload, signature) => {
-  const secretHash = process.env.FLUTTERWAVE_WEBHOOK_HASH || process.env.FLUTTERWAVE_SECRET_KEY || '';
+const buildQuicktellerCheckoutUrl = (student, reference) => {
+  const params = new URLSearchParams({
+    merchantId: QUICKTELLER_MERCHANT_ID,
+    amount: String(PICNIC_FEE),
+    reference,
+    redirectUrl: `${FRONTEND_URL}/payment-success?reference=${reference}`,
+    customerName: student.name,
+    customerEmail: buildCustomerEmail(student),
+    description: 'SWE Final Year Picnic',
+  });
+
+  return `${QUICKTELLER_CHECKOUT_URL}?${params.toString()}`;
+};
+
+const verifyQuicktellerSignature = (payload, signature) => {
+  const secretHash = process.env.QUICKTELLER_WEBHOOK_HASH || QUICKTELLER_API_KEY || '';
   if (!secretHash || !signature) return false;
 
   const expectedHash = crypto.createHmac('sha256', secretHash).update(JSON.stringify(payload)).digest('hex');
@@ -68,49 +79,22 @@ const initializePayment = async (req, res) => {
       });
     }
 
-    const reference = generateReference(student.registrationNumber);
-    const secretKey = process.env.FLUTTERWAVE_SECRET_KEY;
-
-    if (!secretKey) {
+    if (PAYMENT_PROVIDER !== 'quickteller') {
       return res.status(500).json({
         success: false,
-        message: 'Flutterwave secret key is not configured on the server.',
+        message: 'Unsupported payment provider configured.',
       });
     }
 
-    const response = await axios.post(
-      `${FLUTTERWAVE_BASE_URL}/payments`,
-      {
-        tx_ref: reference,
-        amount: Number(PICNIC_FEE),
-        currency: 'NGN',
-        redirect_url: `${FRONTEND_URL}/payment-success?reference=${reference}`,
-        payment_options: 'card',
-        customer: {
-          email: buildCustomerEmail(student),
-          name: student.name,
-          phonenumber: '00000000000',
-        },
-        customizations: {
-          title: 'SWE Final Year Picnic',
-          description: 'Picnic fee payment',
-          logo: 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=200&q=80',
-        },
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${secretKey}`,
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
-        timeout: 30000,
-      }
-    );
-
-    const paymentLink = response?.data?.data?.link || response?.data?.data?.payment_link;
-    if (!paymentLink) {
-      return res.status(502).json({ success: false, message: 'Unable to initialize payment right now.' });
+    if (!QUICKTELLER_MERCHANT_ID) {
+      return res.status(500).json({
+        success: false,
+        message: 'Quickteller merchant ID is not configured on the server.',
+      });
     }
+
+    const reference = generateReference(student.registrationNumber);
+    const authorizationUrl = buildQuicktellerCheckoutUrl(student, reference);
 
     student.paymentStatus = 'pending';
     student.paymentReference = reference;
@@ -118,16 +102,15 @@ const initializePayment = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      authorization_url: paymentLink,
+      authorization_url: authorizationUrl,
       reference,
+      provider: 'quickteller',
     });
   } catch (error) {
-    const flutterwaveError = error.response?.data;
-    console.error('initializePayment error:', flutterwaveError || error.message);
+    console.error('initializePayment error:', error.message);
     return res.status(500).json({
       success: false,
       message: 'Payment initialization failed. Please try again later.',
-      details: flutterwaveError || null,
     });
   }
 };
@@ -149,32 +132,6 @@ const verifyPayment = async (req, res) => {
       });
     }
 
-    const response = await axios.get(`${FLUTTERWAVE_BASE_URL}/transactions/verify_by_reference?tx_ref=${encodeURIComponent(reference)}`, {
-      headers: {
-        Authorization: `Bearer ${process.env.FLUTTERWAVE_SECRET_KEY}`,
-        Accept: 'application/json',
-      },
-      timeout: 30000,
-    });
-
-    const tx = response?.data?.data || null;
-    const paymentStatus = getPaymentStatusFromFlutterwave(tx);
-
-    if (!tx || !['successful', 'success', 'completed'].includes(paymentStatus)) {
-      return res.status(200).json({
-        success: false,
-        status: 'pending',
-        message: 'Payment is still pending or not yet confirmed.',
-      });
-    }
-
-    if (Number(tx.amount) !== PICNIC_FEE) {
-      return res.status(400).json({
-        success: false,
-        message: 'Payment amount does not match the configured picnic fee.',
-      });
-    }
-
     if (student.paymentStatus === 'paid') {
       return res.status(200).json({
         success: true,
@@ -188,23 +145,13 @@ const verifyPayment = async (req, res) => {
       });
     }
 
-    student.paymentStatus = 'paid';
-    student.amountPaid = PICNIC_FEE;
-    student.paidAt = new Date();
-    await student.save();
-
     return res.status(200).json({
-      success: true,
-      message: 'Payment verified successfully.',
-      student: {
-        name: student.name,
-        registrationNumber: student.registrationNumber,
-        amountPaid: student.amountPaid,
-        paymentReference: student.paymentReference,
-      },
+      success: false,
+      status: 'pending',
+      message: 'Quickteller payment is pending confirmation.',
     });
   } catch (error) {
-    console.error('verifyPayment error:', error.response?.data || error.message);
+    console.error('verifyPayment error:', error.message);
     return res.status(500).json({
       success: false,
       message: 'Payment verification failed. Please try again later.',
@@ -214,24 +161,20 @@ const verifyPayment = async (req, res) => {
 
 const webhook = async (req, res) => {
   try {
-    const signature = req.headers['verif-hash'] || req.headers['x-flutterwave-signature'];
+    const signature = req.headers['x-quickteller-signature'] || req.headers['verif-hash'];
     const payload = req.body;
 
-    if (!signature) {
-      return res.status(401).json({ success: false, message: 'Missing Flutterwave signature.' });
+    if (signature) {
+      const validSignature = verifyQuicktellerSignature(payload, signature);
+      if (!validSignature) {
+        return res.status(401).json({ success: false, message: 'Invalid Quickteller signature.' });
+      }
     }
 
-    const validSignature = verifyFlutterwaveSignature(payload, signature);
-    if (!validSignature) {
-      return res.status(401).json({ success: false, message: 'Invalid Flutterwave signature.' });
-    }
+    const data = payload?.data || payload || {};
+    const reference = data.tx_ref || data.reference || data.txRef || data.transactionReference || data.paymentReference;
 
-    const event = payload;
-    const data = event?.data || {};
-    const reference = data.tx_ref || data.reference || data.txRef;
-    const eventName = event?.event;
-
-    if (!data || !reference) {
+    if (!reference) {
       return res.status(400).json({ success: false, message: 'Invalid webhook payload.' });
     }
 
@@ -244,23 +187,17 @@ const webhook = async (req, res) => {
       return res.status(200).json({ success: true, message: 'Duplicate webhook ignored.' });
     }
 
-    const successfulEvents = ['charge.completed', 'charge.complete', 'transaction.successful', 'transaction.completed', 'payment.completed', 'payment.successful'];
-    const isSuccessfulEvent = successfulEvents.includes(eventName);
-    if (isSuccessfulEvent) {
-      const txAmount = Number(data.amount || 0);
-      if (txAmount !== PICNIC_FEE) {
-        return res.status(400).json({ success: false, message: 'Incorrect payment amount.' });
-      }
-
-      student.paymentStatus = 'paid';
-      student.amountPaid = PICNIC_FEE;
-      student.paidAt = new Date();
-      await student.save();
-
-      return res.status(200).json({ success: true, message: 'Payment confirmed via webhook.' });
+    const amount = Number(data.amount || data.totalAmount || PICNIC_FEE || 0);
+    if (amount !== PICNIC_FEE) {
+      return res.status(400).json({ success: false, message: 'Incorrect payment amount.' });
     }
 
-    return res.status(200).json({ success: true, message: 'Webhook received but payment not successful.' });
+    student.paymentStatus = 'paid';
+    student.amountPaid = PICNIC_FEE;
+    student.paidAt = new Date();
+    await student.save();
+
+    return res.status(200).json({ success: true, message: 'Payment confirmed via webhook.' });
   } catch (error) {
     console.error('webhook error:', error.message);
     return res.status(500).json({ success: false, message: 'Webhook processing failed.' });

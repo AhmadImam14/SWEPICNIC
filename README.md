@@ -1,14 +1,14 @@
 # SWE Final Year Picnic
 
-A lightweight web application for verifying eligible final-year Software Engineering students, collecting picnic payments via Flutterwave, and monitoring payment records for admins.
+A lightweight web application for verifying eligible final-year Software Engineering students, collecting picnic payments via Quickteller, and monitoring payment records for admins.
 
 ## Features
 
 - Student registration verification using a registration number
 - Duplicate-payment prevention at the backend level
-- Flutterwave payment initialization and verification
+- Quickteller payment checkout redirection
 - Countdown timer for payment deadline
-- Secure Flutterwave webhook processing
+- Secure webhook handling for payment confirmation
 - Admin dashboard with statistics and filtering
 - CSV export for payment records
 - MongoDB Atlas-ready data model
@@ -19,8 +19,8 @@ A lightweight web application for verifying eligible final-year Software Enginee
 - Frontend: HTML, CSS, Vanilla JavaScript
 - Backend: Node.js + Express.js
 - Database: MongoDB + Mongoose
-- Payments: Flutterwave
-- Deployment: Vercel or Express static serving for frontend; Render or Node hosting for backend
+- Payments: Quickteller
+- Deployment: Express static serving for frontend; Render or Node hosting for backend
 
 ## Project Structure
 
@@ -70,9 +70,11 @@ Copy `.env.example` to `.env` and fill in the values:
 ```env
 PORT=5000
 MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/picnic
-FLUTTERWAVE_PUBLIC_KEY=your_flutterwave_public_key
-FLUTTERWAVE_SECRET_KEY=your_flutterwave_secret_key
-FLUTTERWAVE_WEBHOOK_HASH=your_flutterwave_webhook_hash
+PAYMENT_PROVIDER=quickteller
+QUICKTELLER_MERCHANT_ID=your_quickteller_merchant_id
+QUICKTELLER_API_KEY=your_quickteller_api_key
+QUICKTELLER_WEBHOOK_HASH=your_quickteller_webhook_hash
+QUICKTELLER_CHECKOUT_URL=https://checkout.quickteller.com
 PICNIC_FEE=5000
 PAYMENT_DEADLINE=2026-09-20T23:59:59
 ADMIN_EMAIL=admin@example.com
@@ -87,14 +89,14 @@ FRONTEND_URL=http://localhost:5000
 3. Get the connection string and set it in `MONGODB_URI`.
 4. Ensure your app can connect to the cluster.
 
-## Flutterwave Setup
+## Quickteller Setup
 
-1. Create a Flutterwave account.
-2. Get your public and secret keys from the dashboard.
+1. Create or access your Quickteller/InterSwitch merchant account.
+2. Get your merchant ID, API key, and webhook hash from the dashboard.
 3. Keep the secret key in the backend only.
-4. Use test keys during development and switch to live keys for production.
-5. Set the redirect URL to your frontend success route, e.g. `https://your-site.com/payment-success`.
-6. Configure your webhook and copy the webhook hash to `FLUTTERWAVE_WEBHOOK_HASH`.
+4. Configure your redirect URL to your frontend success route, e.g. `https://your-site.com/payment-success`.
+5. Set `QUICKTELLER_CHECKOUT_URL` to the correct Quickteller checkout host for your region/account.
+6. Copy the webhook hash to `QUICKTELLER_WEBHOOK_HASH`.
 
 ## Student CSV Import
 
@@ -178,7 +180,7 @@ http://localhost:5000
 
 ## Security Notes
 
-- Never expose the Flutterwave secret key to the frontend.
+- Never expose the Quickteller secret key to the frontend.
 - Never trust client-side payment status or amount.
 - Validate user input and use backend checks for duplicates and deadline enforcement.
 - Verify webhook signatures before updating the database.
