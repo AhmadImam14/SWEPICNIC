@@ -95,14 +95,30 @@ const paystackRequest = async (path, body = {}, method = 'POST') => {
     requestOptions.body = JSON.stringify(body);
   }
 
-  const response = await fetch(`${PAYSTACK_API_URL}${path}`, requestOptions);
-  const payload = await response.json().catch(() => ({}));
+  try {
+    const response = await fetch(`${PAYSTACK_API_URL}${path}`, requestOptions);
+    const payload = await response.json().catch(() => ({}));
 
-  if (!response.ok || payload.status === false) {
-    throw new Error(payload?.message || 'Paystack request failed.');
+    if (!response.ok || payload.status === false) {
+      const errorMessage = payload?.message || 'Paystack request failed.';
+      console.error('Paystack API error:', {
+        path,
+        status: response.status,
+        statusText: response.statusText,
+        message: errorMessage,
+        payload,
+      });
+      throw new Error(errorMessage);
+    }
+
+    return payload;
+  } catch (error) {
+    console.error('Paystack request exception:', {
+      path,
+      message: error.message,
+    });
+    throw error;
   }
-
-  return payload;
 };
 
 const verifyPaystackSignature = (payload, signature) => {
