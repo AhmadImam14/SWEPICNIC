@@ -11,9 +11,14 @@ const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY || '';
 const PAYSTACK_PUBLIC_KEY = process.env.PAYSTACK_PUBLIC_KEY || '';
 
 const buildCustomerEmail = (student) => {
-  const regNumber = String(student?.registrationNumber || '').trim().toLowerCase();
-  const cleanedLocalPart = regNumber.replace(/[^a-z0-9]/g, '').slice(0, 60) || 'student';
-  return `${cleanedLocalPart}@student.mail`;
+  const rawIdentifier = String(student?.registrationNumber || student?.name || '').trim();
+  const cleanedLocalPart = rawIdentifier
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+    .slice(0, 30);
+
+  const safeLocalPart = cleanedLocalPart && cleanedLocalPart.length >= 3 ? cleanedLocalPart : 'student';
+  return `${safeLocalPart}@swepicnic.com`;
 };
 
 const isDeadlinePassed = () => {
