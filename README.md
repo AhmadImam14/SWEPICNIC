@@ -1,12 +1,12 @@
 # SWE Final Year Picnic
 
-A lightweight web application for verifying eligible final-year Software Engineering students, collecting picnic payments via Quickteller, and monitoring payment records for admins.
+A lightweight web application for verifying eligible final-year Software Engineering students, collecting picnic payments via Paystack, and monitoring payment records for admins.
 
 ## Features
 
 - Student registration verification using a registration number
 - Duplicate-payment prevention at the backend level
-- Quickteller payment checkout redirection
+- Paystack payment checkout redirection
 - Countdown timer for payment deadline
 - Secure webhook handling for payment confirmation
 - Admin dashboard with statistics and filtering
@@ -19,7 +19,7 @@ A lightweight web application for verifying eligible final-year Software Enginee
 - Frontend: HTML, CSS, Vanilla JavaScript
 - Backend: Node.js + Express.js
 - Database: MongoDB + Mongoose
-- Payments: Quickteller
+- Payments: Paystack
 - Deployment: Express static serving for frontend; Render or Node hosting for backend
 
 ## Project Structure
@@ -70,15 +70,11 @@ Copy `.env.example` to `.env` and fill in the values:
 ```env
 PORT=5000
 MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/picnic
-PAYMENT_PROVIDER=quickteller
-QUICKTELLER_MERCHANT_ID=your_quickteller_merchant_id
-QUICKTELLER_MERCHANT_CODE=your_quickteller_merchant_code
-QUICKTELLER_PAY_ITEM_ID=your_quickteller_pay_item_id
-QUICKTELLER_API_KEY=your_quickteller_api_key
-QUICKTELLER_WEBHOOK_HASH=your_quickteller_webhook_hash
-QUICKTELLER_CHECKOUT_URL=https://webpay.interswitchng.com/collections/w/pay
-QUICKTELLER_PAYMENT_RESPONSE_TYPE=POST
-QUICKTELLER_CURRENCY=566
+PAYMENT_PROVIDER=paystack
+PAYSTACK_SECRET_KEY=your_paystack_secret_key
+PAYSTACK_PUBLIC_KEY=your_paystack_public_key
+PAYSTACK_BASE_URL=https://api.paystack.co
+PAYSTACK_CALLBACK_URL=http://localhost:5000/payment-success
 PICNIC_FEE=5000
 PAYMENT_DEADLINE=2026-09-20T23:59:59
 ADMIN_EMAIL=admin@example.com
@@ -93,15 +89,15 @@ FRONTEND_URL=http://localhost:5000
 3. Get the connection string and set it in `MONGODB_URI`.
 4. Ensure your app can connect to the cluster.
 
-## Quickteller Setup
+## Paystack Setup
 
-1. Create or access your Quickteller/InterSwitch merchant account.
-3. Get your merchant code, pay item ID, API key, and webhook hash from the dashboard.
-4. Keep the secret key in the backend only.
-5. Configure your `site_redirect_url` to your frontend success route, e.g. `https://your-site.com/payment-success`.
-6. Set `QUICKTELLER_CHECKOUT_URL` to the correct Interswitch/Quickteller checkout host for your region/account.
-7. Copy the webhook hash to `QUICKTELLER_WEBHOOK_HASH`.
-8. Use `QUICKTELLER_CURRENCY=566` for NGN and `QUICKTELLER_PAYMENT_RESPONSE_TYPE=POST` for server-side handling.
+1. Create or access your Paystack merchant account.
+2. Get your secret key and public key from the dashboard.
+3. Keep the secret key in the backend only.
+4. Configure your callback URL to your frontend success route, e.g. `https://your-site.com/payment-success`.
+5. Set `PAYSTACK_BASE_URL` to `https://api.paystack.co`.
+6. Use `PAYSTACK_CALLBACK_URL` to match your public route.
+7. Use `PICNIC_FEE` in naira and let the app convert to kobo automatically when sending to Paystack.
 
 ## Student CSV Import
 
@@ -185,7 +181,7 @@ http://localhost:5000
 
 ## Security Notes
 
-- Never expose the Quickteller secret key to the frontend.
+- Never expose the Paystack secret key to the frontend.
 - Never trust client-side payment status or amount.
 - Validate user input and use backend checks for duplicates and deadline enforcement.
 - Verify webhook signatures before updating the database.

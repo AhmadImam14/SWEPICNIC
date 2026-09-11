@@ -5,14 +5,10 @@ const { generateReference } = require('../utils/generateReference');
 const PICNIC_FEE = Number(process.env.PICNIC_FEE || 5000);
 const PAYMENT_DEADLINE = process.env.PAYMENT_DEADLINE ? new Date(process.env.PAYMENT_DEADLINE) : null;
 const FRONTEND_URL = (process.env.FRONTEND_URL || 'http://localhost:5000').replace(/\/$/, '');
-const PAYMENT_PROVIDER = (process.env.PAYMENT_PROVIDER || 'quickteller').toLowerCase();
-const QUICKTELLER_CHECKOUT_URL = (process.env.QUICKTELLER_CHECKOUT_URL || 'https://webpay.interswitchng.com/collections/w/pay').replace(/\/$/, '');
-const QUICKTELLER_MERCHANT_ID = process.env.QUICKTELLER_MERCHANT_ID || '';
-const QUICKTELLER_MERCHANT_CODE = process.env.QUICKTELLER_MERCHANT_CODE || QUICKTELLER_MERCHANT_ID || '';
-const QUICKTELLER_PAY_ITEM_ID = process.env.QUICKTELLER_PAY_ITEM_ID || '';
-const QUICKTELLER_CURRENCY = Number(process.env.QUICKTELLER_CURRENCY || 566);
-const QUICKTELLER_PAYMENT_RESPONSE_TYPE = (process.env.QUICKTELLER_PAYMENT_RESPONSE_TYPE || 'POST').toUpperCase();
-const QUICKTELLER_API_KEY = process.env.QUICKTELLER_API_KEY || '';
+const PAYMENT_PROVIDER = (process.env.PAYMENT_PROVIDER || 'paystack').toLowerCase();
+const PAYSTACK_API_URL = (process.env.PAYSTACK_BASE_URL || 'https://api.paystack.co').replace(/\/$/, '');
+const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY || '';
+const PAYSTACK_PUBLIC_KEY = process.env.PAYSTACK_PUBLIC_KEY || '';
 
 const buildCustomerEmail = (student) => {
   const regNumber = String(student?.registrationNumber || '').trim().toLowerCase();
@@ -28,28 +24,41 @@ const isDeadlinePassed = () => {
   return new Date() >= PAYMENT_DEADLINE;
 };
 
-const buildQuicktellerCheckoutUrl = (student, reference) => {
-  const params = new URLSearchParams({
-    merchant_code: QUICKTELLER_MERCHANT_CODE,
-    pay_item_id: QUICKTELLER_PAY_ITEM_ID,
-    txn_ref: reference,
-    amount: String(PICNIC_FEE),
-    currency: String(QUICKTELLER_CURRENCY),
-    cust_email: buildCustomerEmail(student),
-    cust_name: student.name,
-    site_redirect_url: `${FRONTEND_URL}/payment-success?reference=${reference}`,
-    payment_response_type: QUICKTELLER_PAYMENT_RESPONSE_TYPE,
-  });
+const paystackRequest = async (path, body = {}, method = 'POST') => {
+  if (!PAYSTACK_SECRET_KEY) {
+    throw new Error('Paystack secret key is not configured on the server.');
+  }
 
-  return `${QUICKTELLER_CHECKOUT_URL}?${params.toString()}`;
+  const requestOptions = {
+    method,
+    headers: {
+      Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+  };
+
+  if (method !== 'GET' && Object.keys(body).length > 0) {
+    requestOptions.body = JSON.stringify(body);
+  }
+
+  const response = await fetch(`${PAYSTACK_API_URL}${path}`, requestOptions);
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok || payload.status === false) {
+    throw new Error(payload?.message || 'Paystack request failed.');
+  }
+
+  return payload;
 };
 
-const verifyQuicktellerSignature = (payload, signature) => {
-  const secretHash = process.env.QUICKTELLER_WEBHOOK_HASH || QUICKTELLER_API_KEY || '';
-  if (!secretHash || !signature) return false;
+const verifyPaystackSignature = (payload, signature) => {
+  if (!PAYSTACK_SECRET_KEY || !signature) return false;
 
-  const expectedHash = crypto.createHmac('sha256', secretHash).update(JSON.stringify(payload)).digest('hex');
-  return expectedHash === signature;
+  const expectedHash = crypto.createHmac('sha512', PAYSTACK_SECRET_KEY).update(payload).digest('hex');
+  if (expectedHash.length !== signature.length) return false;
+
+  return crypto.timingSafeEqual(Buffer.from(expectedHash), Buffer.from(signature));
 };
 
 const initializePayment = async (req, res) => {
@@ -85,29 +94,34 @@ const initializePayment = async (req, res) => {
       });
     }
 
-    if (PAYMENT_PROVIDER !== 'quickteller') {
+    if (PAYMENT_PROVIDER !== 'paystack') {
       return res.status(500).json({
         success: false,
         message: 'Unsupported payment provider configured.',
       });
     }
 
-    if (!QUICKTELLER_MERCHANT_CODE) {
+    if (!PAYSTACK_SECRET_KEY) {
       return res.status(500).json({
         success: false,
-        message: 'Quickteller merchant code is not configured on the server.',
-      });
-    }
-
-    if (!QUICKTELLER_PAY_ITEM_ID) {
-      return res.status(500).json({
-        success: false,
-        message: 'Quickteller pay item ID is not configured on the server.',
+        message: 'Paystack secret key is not configured on the server.',
       });
     }
 
     const reference = generateReference(student.registrationNumber);
-    const authorizationUrl = buildQuicktellerCheckoutUrl(student, reference);
+    const payload = {
+      email: buildCustomerEmail(student),
+      amount: String(Math.round(PICNIC_FEE * 100)),
+      reference,
+      callback_url: `${FRONTEND_URL}/payment-success?reference=${reference}`,
+    };
+
+    const response = await paystackRequest('/transaction/initialize', payload, 'POST');
+    const authorizationUrl = response?.data?.authorization_url;
+
+    if (!authorizationUrl) {
+      throw new Error('Paystack did not return an authorization URL.');
+    }
 
     student.paymentStatus = 'pending';
     student.paymentReference = reference;
@@ -117,13 +131,13 @@ const initializePayment = async (req, res) => {
       success: true,
       authorization_url: authorizationUrl,
       reference,
-      provider: 'quickteller',
+      provider: 'paystack',
     });
   } catch (error) {
     console.error('initializePayment error:', error.message);
     return res.status(500).json({
       success: false,
-      message: 'Payment initialization failed. Please try again later.',
+      message: error.message || 'Payment initialization failed. Please try again later.',
     });
   }
 };
@@ -158,10 +172,32 @@ const verifyPayment = async (req, res) => {
       });
     }
 
+    const response = await paystackRequest(`/transaction/verify/${encodeURIComponent(reference)}`, {}, 'GET');
+    const payment = response?.data || {};
+    const amountMatches = Number(payment.amount || 0) === Math.round(PICNIC_FEE * 100);
+
+    if (payment.status === 'success' && amountMatches) {
+      student.paymentStatus = 'paid';
+      student.amountPaid = PICNIC_FEE;
+      student.paidAt = new Date();
+      await student.save();
+
+      return res.status(200).json({
+        success: true,
+        message: 'Payment confirmed via Paystack.',
+        student: {
+          name: student.name,
+          registrationNumber: student.registrationNumber,
+          amountPaid: student.amountPaid,
+          paymentReference: student.paymentReference,
+        },
+      });
+    }
+
     return res.status(200).json({
       success: false,
       status: 'pending',
-      message: 'Quickteller payment is pending confirmation.',
+      message: 'Paystack payment is pending confirmation.',
     });
   } catch (error) {
     console.error('verifyPayment error:', error.message);
@@ -174,21 +210,24 @@ const verifyPayment = async (req, res) => {
 
 const webhook = async (req, res) => {
   try {
-    const signature = req.headers['x-quickteller-signature'] || req.headers['verif-hash'];
-    const payload = req.body;
+    const rawBody = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : JSON.stringify(req.body || {});
+    const signature = req.headers['x-paystack-signature'];
 
-    if (signature) {
-      const validSignature = verifyQuicktellerSignature(payload, signature);
-      if (!validSignature) {
-        return res.status(401).json({ success: false, message: 'Invalid Quickteller signature.' });
-      }
+    if (signature && !verifyPaystackSignature(rawBody, signature)) {
+      return res.status(401).json({ success: false, message: 'Invalid Paystack signature.' });
     }
 
-    const data = payload?.data || payload || {};
-    const reference = data.tx_ref || data.reference || data.txRef || data.transactionReference || data.paymentReference;
+    const payload = Buffer.isBuffer(req.body) ? JSON.parse(rawBody) : req.body || {};
+    const event = payload?.event || 'charge.success';
+    const data = payload?.data || {};
+    const reference = data.reference || data.tx_ref;
 
     if (!reference) {
       return res.status(400).json({ success: false, message: 'Invalid webhook payload.' });
+    }
+
+    if (event !== 'charge.success' || data.status !== 'success') {
+      return res.status(200).json({ success: true, message: 'Webhook received but transaction not successful.' });
     }
 
     const student = await Student.findOne({ paymentReference: reference });
@@ -200,8 +239,8 @@ const webhook = async (req, res) => {
       return res.status(200).json({ success: true, message: 'Duplicate webhook ignored.' });
     }
 
-    const amount = Number(data.amount || data.totalAmount || PICNIC_FEE || 0);
-    if (amount !== PICNIC_FEE) {
+    const amount = Number(data.amount || 0);
+    if (amount !== Math.round(PICNIC_FEE * 100)) {
       return res.status(400).json({ success: false, message: 'Incorrect payment amount.' });
     }
 
