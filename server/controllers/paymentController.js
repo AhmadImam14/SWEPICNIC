@@ -9,6 +9,7 @@ const PAYMENT_PROVIDER = (process.env.PAYMENT_PROVIDER || 'paystack').toLowerCas
 const PAYSTACK_API_URL = (process.env.PAYSTACK_BASE_URL || 'https://api.paystack.co').replace(/\/$/, '');
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY || '';
 const PAYSTACK_PUBLIC_KEY = process.env.PAYSTACK_PUBLIC_KEY || '';
+const PAYSTACK_CALLBACK_URL = (process.env.PAYSTACK_CALLBACK_URL || `${FRONTEND_URL}/payment-success`).replace(/\/$/, '');
 
 const buildCustomerEmail = (student) => {
   const rawIdentifier = String(student?.registrationNumber || student?.name || '').trim();
@@ -19,6 +20,12 @@ const buildCustomerEmail = (student) => {
 
   const safeLocalPart = cleanedLocalPart && cleanedLocalPart.length >= 3 ? cleanedLocalPart : 'student';
   return `${safeLocalPart}@swepicnic.com`;
+};
+
+const buildSuccessCallbackUrl = (reference) => {
+  const baseUrl = PAYSTACK_CALLBACK_URL || `${FRONTEND_URL}/payment-success`;
+  const hasQuery = baseUrl.includes('?');
+  return `${baseUrl}${hasQuery ? '&' : '?'}reference=${encodeURIComponent(reference)}`;
 };
 
 const isDeadlinePassed = () => {
@@ -118,7 +125,7 @@ const initializePayment = async (req, res) => {
       email: buildCustomerEmail(student),
       amount: String(Math.round(PICNIC_FEE * 100)),
       reference,
-      callback_url: `${FRONTEND_URL}/payment-success?reference=${reference}`,
+      callback_url: buildSuccessCallbackUrl(reference),
     };
 
     const response = await paystackRequest('/transaction/initialize', payload, 'POST');
