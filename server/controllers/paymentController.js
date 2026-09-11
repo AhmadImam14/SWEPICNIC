@@ -11,12 +11,7 @@ const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY || '';
 const PAYSTACK_PUBLIC_KEY = process.env.PAYSTACK_PUBLIC_KEY || '';
 const PAYSTACK_CALLBACK_URL = (process.env.PAYSTACK_CALLBACK_URL || `${FRONTEND_URL}/payment-success`).replace(/\/$/, '');
 
-const normalizeRegistrationNumber = (value = '') => String(value || '').trim().replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
-
-const buildRegistrationQueryPattern = (input = '') => {
-  const cleaned = normalizeRegistrationNumber(input);
-  return cleaned.split('').map((char) => `${char}[\\s/\\-]*`).join('');
-};
+const normalizeRegistrationNumber = (value = '') => String(value || '').trim().replace(/\s+/g, '').toUpperCase();
 
 const buildCustomerEmail = (student) => {
   const rawIdentifier = String(student?.registrationNumber || student?.name || '').trim();
@@ -97,12 +92,7 @@ const initializePayment = async (req, res) => {
       });
     }
 
-    const student = await Student.findOne({
-      $or: [
-        { registrationNumber: normalized },
-        { registrationNumber: { $regex: `^${buildRegistrationQueryPattern(normalized)}$`, $options: 'i' } },
-      ],
-    });
+    const student = await Student.findOne({ registrationNumber: normalized });
 
     if (!student) {
       return res.status(404).json({
