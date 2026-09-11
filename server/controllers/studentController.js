@@ -2,7 +2,12 @@ const Student = require('../models/Student');
 
 const normalizeRegistrationNumber = (input = '') => {
   const trimmed = String(input).trim();
-  return trimmed.replace(/\s+/g, '').toUpperCase();
+  return trimmed.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+};
+
+const buildRegistrationQueryPattern = (input = '') => {
+  const cleaned = normalizeRegistrationNumber(input);
+  return cleaned.split('').map((char) => `${char}[\\s/\\-]*`).join('');
 };
 
 const verifyStudent = async (req, res) => {
@@ -25,7 +30,12 @@ const verifyStudent = async (req, res) => {
       });
     }
 
-    const student = await Student.findOne({ registrationNumber: normalized }).lean();
+    const student = await Student.findOne({
+      $or: [
+        { registrationNumber: normalized },
+        { registrationNumber: { $regex: `^${buildRegistrationQueryPattern(normalized)}$`, $options: 'i' } },
+      ],
+    }).lean();
 
     if (!student) {
       return res.status(404).json({

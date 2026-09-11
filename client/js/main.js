@@ -15,6 +15,24 @@ const verifyButton = document.getElementById('verifyButton');
 const messageBox = document.getElementById('msgBox');
 const studentResult = document.getElementById('studentResult');
 
+const formatRegistrationNumber = (value) => {
+  const cleaned = String(value || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+
+  if (!cleaned) return '';
+
+  const parts = [];
+  if (cleaned.length > 0) parts.push(cleaned.slice(0, 3));
+  if (cleaned.length > 3) parts.push(cleaned.slice(3, 5));
+  if (cleaned.length > 5) parts.push(cleaned.slice(5, 8));
+  if (cleaned.length > 8) parts.push(cleaned.slice(8));
+
+  return parts.join('/');
+};
+
+registrationInput.addEventListener('input', () => {
+  registrationInput.value = formatRegistrationNumber(registrationInput.value);
+});
+
 const setMessage = (text, type = 'info') => {
   messageBox.textContent = text;
   messageBox.className = `message-box ${type}`;

@@ -13,6 +13,11 @@ const PAYSTACK_CALLBACK_URL = (process.env.PAYSTACK_CALLBACK_URL || `${FRONTEND_
 
 const normalizeRegistrationNumber = (value = '') => String(value || '').trim().replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
 
+const buildRegistrationQueryPattern = (input = '') => {
+  const cleaned = normalizeRegistrationNumber(input);
+  return cleaned.split('').map((char) => `${char}[\\s/\\-]*`).join('');
+};
+
 const buildCustomerEmail = (student) => {
   const rawIdentifier = String(student?.registrationNumber || student?.name || '').trim();
   const cleanedLocalPart = rawIdentifier
@@ -95,7 +100,7 @@ const initializePayment = async (req, res) => {
     const student = await Student.findOne({
       $or: [
         { registrationNumber: normalized },
-        { registrationNumber: { $regex: `^${normalized.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' } },
+        { registrationNumber: { $regex: `^${buildRegistrationQueryPattern(normalized)}$`, $options: 'i' } },
       ],
     });
 
