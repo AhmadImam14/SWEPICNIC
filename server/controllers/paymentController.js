@@ -9,8 +9,8 @@ const PAYMENT_PROVIDER = (process.env.PAYMENT_PROVIDER || 'paystack').toLowerCas
 const PAYSTACK_API_URL = (process.env.PAYSTACK_BASE_URL || 'https://api.paystack.co').replace(/\/$/, '');
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY || '';
 const PAYSTACK_PUBLIC_KEY = process.env.PAYSTACK_PUBLIC_KEY || '';
-const PAYSTACK_CALLBACK_URL = (process.env.PAYSTACK_CALLBACK_URL || `${FRONTEND_URL}/payment-success`).replace(/\/$/, '');
-
+const PAYSTACK_CALLBACK_URL = (process.env.PAYSTACK_CALLBACK_URL || `${FRONTEND_URL}/payment-success`).replace(/\/$/, '');const PAYSTACK_RETRY_DELAY_MS = Number(process.env.PAYSTACK_RETRY_DELAY_MS || 5000);
+const PAYSTACK_MAX_RETRIES = Number(process.env.PAYSTACK_MAX_RETRIES || 3);
 const normalizeRegistrationNumber = (value = '') => String(value || '').trim().replace(/\s+/g, '').toUpperCase();
 
 const compactRegistrationKey = (value = '') => String(value || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -211,6 +211,38 @@ const initializePayment = async (req, res) => {
   }
 };
 
+const verifyPaymentWithRetry = async (reference, retriesLeft = PAYSTACK_MAX_RETRIES) => {
+  try {
+    const response = await paystackRequest(`/transaction/verify/${encodeURIComponent(reference)}`, {}, 'GET');
+    const payment = response?.data || {};
+    const amountMatches = Number(payment.amount || 0) === Math.round(PICNIC_FEE * 100);
+
+    if (payment.status === 'success' && amountMatches) {
+      return {
+        success: true,
+        payment,
+      };
+    }
+
+    if (payment.status === 'pending' && retriesLeft > 0) {
+      await new Promise((resolve) => setTimeout(resolve, PAYSTACK_RETRY_DELAY_MS));
+      return verifyPaymentWithRetry(reference, retriesLeft - 1);
+    }
+
+    return {
+      success: false,
+      payment,
+    };
+  } catch (error) {
+    if (retriesLeft > 0 && /transaction reference not found|not found/i.test(error.message || '')) {
+      await new Promise((resolve) => setTimeout(resolve, PAYSTACK_RETRY_DELAY_MS));
+      return verifyPaymentWithRetry(reference, retriesLeft - 1);
+    }
+
+    throw error;
+  }
+};
+
 const verifyPayment = async (req, res) => {
   try {
     const { reference } = req.params;
@@ -246,11 +278,11 @@ const verifyPayment = async (req, res) => {
       });
     }
 
-    const response = await paystackRequest(`/transaction/verify/${encodeURIComponent(reference)}`, {}, 'GET');
-    const payment = response?.data || {};
+    const verification = await verifyPaymentWithRetry(reference, PAYSTACK_MAX_RETRIES);
+    const payment = verification.payment || {};
     const amountMatches = Number(payment.amount || 0) === Math.round(PICNIC_FEE * 100);
 
-    if (payment.status === 'success' && amountMatches) {
+    if (verification.success && payment.status === 'success' && amountMatches) {
       student.paymentStatus = 'paid';
       student.amountPaid = PICNIC_FEE;
       student.paidAt = new Date();
@@ -271,8 +303,8 @@ const verifyPayment = async (req, res) => {
 
     return res.status(200).json({
       success: false,
-      status: 'pending',
-      message: 'Paystack payment is pending confirmation.',
+      status: payment.status || 'pending',
+      message: payment.status === 'failed' ? 'Paystack payment was not successful.' : 'Paystack payment is pending confirmation.',
     });
   } catch (error) {
     console.error('verifyPayment error:', error.message);

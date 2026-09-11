@@ -18,6 +18,16 @@ const showSuccess = (payload) => {
   state.classList.remove('hidden');
 };
 
+const showPending = (message = 'Your payment is still being processed by Paystack. Please wait a moment and we will check again automatically.') => {
+  state.innerHTML = `
+    <h2>Payment pending.</h2>
+    <p>${message}</p>
+    <p>Your transaction reference: <strong>${reference}</strong></p>
+    <a href="/" class="primary-btn" style="display:inline-block;text-decoration:none;">Back Home</a>
+  `;
+  state.classList.remove('hidden');
+};
+
 const showFailure = (message = 'No payment has been recorded for your registration number.') => {
   state.innerHTML = `
     <h2>Payment was not completed.</h2>
@@ -27,7 +37,7 @@ const showFailure = (message = 'No payment has been recorded for your registrati
   state.classList.remove('hidden');
 };
 
-const verify = async () => {
+const verify = async (retryCount = 0) => {
   if (!reference) {
     showFailure('No payment reference was provided.');
     return;
@@ -36,6 +46,15 @@ const verify = async () => {
   try {
     const response = await fetch(`/api/payments/verify/${encodeURIComponent(reference)}`);
     const result = await response.json();
+
+    if (result && result.status === 'pending') {
+      showPending(result.message || 'Your payment is still being processed by Paystack. Please wait a moment and we will check again automatically.');
+
+      if (retryCount < 3) {
+        setTimeout(() => verify(retryCount + 1), 5000);
+      }
+      return;
+    }
 
     if (!response.ok || !result.success) {
       showFailure(result.message || 'Verification failed.');
