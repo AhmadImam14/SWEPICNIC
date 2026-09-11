@@ -15,6 +15,15 @@ const normalizeRegistrationNumber = (value = '') => String(value || '').trim().r
 
 const compactRegistrationKey = (value = '') => String(value || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
 
+const getExpectedMerchantAmount = () => Math.round(PICNIC_FEE * 100);
+
+const isValidPaystackPaymentAmount = (payment = {}) => {
+  const grossAmount = Number(payment.amount || 0);
+  const fees = Number(payment.fees || 0);
+  const netAmount = grossAmount - fees;
+  return grossAmount > 0 && netAmount === getExpectedMerchantAmount();
+};
+
 const parseRegistrationNumberFromReference = (reference = '') => {
   const rawReference = String(reference || '').trim();
   if (!rawReference) return '';
@@ -215,9 +224,8 @@ const verifyPaymentWithRetry = async (reference, retriesLeft = PAYSTACK_MAX_RETR
   try {
     const response = await paystackRequest(`/transaction/verify/${encodeURIComponent(reference)}`, {}, 'GET');
     const payment = response?.data || {};
-    const amountMatches = Number(payment.amount || 0) === Math.round(PICNIC_FEE * 100);
 
-    if (payment.status === 'success' && amountMatches) {
+    if (payment.status === 'success' && isValidPaystackPaymentAmount(payment)) {
       return {
         success: true,
         payment,
@@ -280,9 +288,10 @@ const verifyPayment = async (req, res) => {
 
     const verification = await verifyPaymentWithRetry(reference, PAYSTACK_MAX_RETRIES);
     const payment = verification.payment || {};
-    const amountMatches = Number(payment.amount || 0) === Math.round(PICNIC_FEE * 100);
+    const status = payment.status || 'unknown';
+    const amountMatches = isValidPaystackPaymentAmount(payment);
 
-    if (verification.success && payment.status === 'success' && amountMatches) {
+    if (verification.success && status === 'success' && amountMatches) {
       student.paymentStatus = 'paid';
       student.amountPaid = PICNIC_FEE;
       student.paidAt = new Date();
@@ -301,10 +310,34 @@ const verifyPayment = async (req, res) => {
       });
     }
 
+    if (status === 'success' && !amountMatches) {
+      return res.status(200).json({
+        success: false,
+        status: 'invalid_amount',
+        message: 'Paystack payment was successful, but the amount does not match the configured picnic fee.',
+      });
+    }
+
+    if (status === 'pending') {
+      return res.status(200).json({
+        success: false,
+        status: 'pending',
+        message: 'Paystack payment is pending confirmation.',
+      });
+    }
+
+    if (status === 'failed' || status === 'cancelled' || status === 'abandoned') {
+      return res.status(200).json({
+        success: false,
+        status: 'failed',
+        message: 'Paystack payment was not successful.',
+      });
+    }
+
     return res.status(200).json({
       success: false,
-      status: payment.status || 'pending',
-      message: payment.status === 'failed' ? 'Paystack payment was not successful.' : 'Paystack payment is pending confirmation.',
+      status: status || 'unknown',
+      message: 'Unable to confirm payment status at the moment.',
     });
   } catch (error) {
     console.error('verifyPayment error:', error.message);
@@ -352,7 +385,11 @@ const webhook = async (req, res) => {
     }
 
     const amount = Number(data.amount || 0);
-    if (amount !== Math.round(PICNIC_FEE * 100)) {
+    const fees = Number(data.fees || 0);
+    const netAmount = amount - fees;
+    const expectedAmount = getExpectedMerchantAmount();
+
+    if (amount <= 0 || netAmount !== expectedAmount) {
       return res.status(400).json({ success: false, message: 'Incorrect payment amount.' });
     }
 
