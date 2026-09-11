@@ -13,22 +13,24 @@ const PAYSTACK_CALLBACK_URL = (process.env.PAYSTACK_CALLBACK_URL || `${FRONTEND_
 
 const normalizeRegistrationNumber = (value = '') => String(value || '').trim().replace(/\s+/g, '').toUpperCase();
 
+const compactRegistrationKey = (value = '') => String(value || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+
 const parseRegistrationNumberFromReference = (reference = '') => {
   const rawReference = String(reference || '').trim();
   if (!rawReference) return '';
 
   const match = rawReference.match(/^SWEPICNIC-([A-Z0-9]+)-[A-F0-9]+$/i);
   if (match) {
-    return normalizeRegistrationNumber(match[1]);
+    return compactRegistrationKey(match[1]);
   }
 
   const withoutPrefix = rawReference.replace(/^SWEPICNIC-/i, '');
   const segments = withoutPrefix.split('-');
   if (segments.length > 1) {
-    return normalizeRegistrationNumber(segments.slice(0, -1).join('-'));
+    return compactRegistrationKey(segments.slice(0, -1).join('-'));
   }
 
-  return '';
+  return compactRegistrationKey(rawReference);
 };
 
 const findStudentForReference = async (reference = '') => {
@@ -38,10 +40,17 @@ const findStudentForReference = async (reference = '') => {
   const directStudent = await Student.findOne({ paymentReference: rawReference });
   if (directStudent) return directStudent;
 
-  const regFromReference = parseRegistrationNumberFromReference(rawReference);
-  if (!regFromReference) return null;
+  const regKeyFromReference = parseRegistrationNumberFromReference(rawReference);
+  if (!regKeyFromReference) return null;
 
-  return Student.findOne({ registrationNumber: regFromReference });
+  const students = await Student.find({});
+
+  return (
+    students.find((student) => {
+      const studentKey = compactRegistrationKey(student.registrationNumber || '');
+      return studentKey === regKeyFromReference;
+    }) || null
+  );
 };
 
 const buildCustomerEmail = (student) => {
@@ -56,9 +65,8 @@ const buildCustomerEmail = (student) => {
 };
 
 const buildSuccessCallbackUrl = (reference) => {
-  const baseUrl = PAYSTACK_CALLBACK_URL || `${FRONTEND_URL}/payment-success`;
-  const hasQuery = baseUrl.includes('?');
-  return `${baseUrl}${hasQuery ? '&' : '?'}reference=${encodeURIComponent(reference)}`;
+  const baseUrl = (PAYSTACK_CALLBACK_URL || `${FRONTEND_URL}/payment-success`).replace(/\?.*$/, '');
+  return `${baseUrl}?reference=${encodeURIComponent(reference)}`;
 };
 
 const isDeadlinePassed = () => {
@@ -318,6 +326,7 @@ module.exports = {
   verifyPayment,
   webhook,
   isDeadlinePassed,
+  compactRegistrationKey,
   parseRegistrationNumberFromReference,
   findStudentForReference,
 };

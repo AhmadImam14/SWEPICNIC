@@ -18,10 +18,10 @@ const showSuccess = (payload) => {
   state.classList.remove('hidden');
 };
 
-const showFailure = (message) => {
+const showFailure = (message = 'No payment has been recorded for your registration number.') => {
   state.innerHTML = `
     <h2>Payment was not completed.</h2>
-    <p>No payment has been recorded for your registration number.</p>
+    <p>${message}</p>
     <a href="/" class="primary-btn" style="display:inline-block;text-decoration:none;">Try Again</a>
   `;
   state.classList.remove('hidden');
