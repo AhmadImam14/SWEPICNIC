@@ -1,5 +1,5 @@
 const params = new URLSearchParams(window.location.search);
-const reference = params.get('reference');
+const reference = params.get('reference') || params.get('trxref');
 const state = document.getElementById('successState');
 
 const formatCurrency = (amount) => `₦${Number(amount || 0).toLocaleString()}`;
