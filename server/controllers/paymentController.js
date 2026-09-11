@@ -13,6 +13,37 @@ const PAYSTACK_CALLBACK_URL = (process.env.PAYSTACK_CALLBACK_URL || `${FRONTEND_
 
 const normalizeRegistrationNumber = (value = '') => String(value || '').trim().replace(/\s+/g, '').toUpperCase();
 
+const parseRegistrationNumberFromReference = (reference = '') => {
+  const rawReference = String(reference || '').trim();
+  if (!rawReference) return '';
+
+  const match = rawReference.match(/^SWEPICNIC-([A-Z0-9]+)-[A-F0-9]+$/i);
+  if (match) {
+    return normalizeRegistrationNumber(match[1]);
+  }
+
+  const withoutPrefix = rawReference.replace(/^SWEPICNIC-/i, '');
+  const segments = withoutPrefix.split('-');
+  if (segments.length > 1) {
+    return normalizeRegistrationNumber(segments.slice(0, -1).join('-'));
+  }
+
+  return '';
+};
+
+const findStudentForReference = async (reference = '') => {
+  const rawReference = String(reference || '').trim();
+  if (!rawReference) return null;
+
+  const directStudent = await Student.findOne({ paymentReference: rawReference });
+  if (directStudent) return directStudent;
+
+  const regFromReference = parseRegistrationNumberFromReference(rawReference);
+  if (!regFromReference) return null;
+
+  return Student.findOne({ registrationNumber: regFromReference });
+};
+
 const buildCustomerEmail = (student) => {
   const rawIdentifier = String(student?.registrationNumber || student?.name || '').trim();
   const cleanedLocalPart = rawIdentifier
@@ -164,7 +195,7 @@ const verifyPayment = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Payment reference is required.' });
     }
 
-    const student = await Student.findOne({ paymentReference: reference });
+    const student = await findStudentForReference(reference);
 
     if (!student) {
       return res.status(404).json({
@@ -173,7 +204,12 @@ const verifyPayment = async (req, res) => {
       });
     }
 
+    if (!student.paymentReference || student.paymentReference !== reference) {
+      student.paymentReference = reference;
+    }
+
     if (student.paymentStatus === 'paid') {
+      await student.save();
       return res.status(200).json({
         success: true,
         message: 'Payment already confirmed.',
@@ -194,6 +230,7 @@ const verifyPayment = async (req, res) => {
       student.paymentStatus = 'paid';
       student.amountPaid = PICNIC_FEE;
       student.paidAt = new Date();
+      student.paymentReference = reference;
       await student.save();
 
       return res.status(200).json({
@@ -244,12 +281,17 @@ const webhook = async (req, res) => {
       return res.status(200).json({ success: true, message: 'Webhook received but transaction not successful.' });
     }
 
-    const student = await Student.findOne({ paymentReference: reference });
+    const student = await findStudentForReference(reference);
     if (!student) {
       return res.status(404).json({ success: false, message: 'Unknown transaction reference.' });
     }
 
+    if (!student.paymentReference || student.paymentReference !== reference) {
+      student.paymentReference = reference;
+    }
+
     if (student.paymentStatus === 'paid') {
+      await student.save();
       return res.status(200).json({ success: true, message: 'Duplicate webhook ignored.' });
     }
 
@@ -261,6 +303,7 @@ const webhook = async (req, res) => {
     student.paymentStatus = 'paid';
     student.amountPaid = PICNIC_FEE;
     student.paidAt = new Date();
+    student.paymentReference = reference;
     await student.save();
 
     return res.status(200).json({ success: true, message: 'Payment confirmed via webhook.' });
@@ -275,4 +318,6 @@ module.exports = {
   verifyPayment,
   webhook,
   isDeadlinePassed,
+  parseRegistrationNumberFromReference,
+  findStudentForReference,
 };
