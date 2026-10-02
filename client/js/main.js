@@ -1,4 +1,4 @@
-const eventDate = '2026-09-30T23:59:59';
+const eventDate = '2026-10-30T23:59:59';
 const eventVenue = 'To Be Announced';
 const feeAmount = 10000;
 
